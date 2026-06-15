@@ -12,3 +12,7 @@ DATE_FORMAT = "%Y-%m-%d"
 
 START_DATE = "2023-01-01"
 END_DATE = "2023-04-01"
+
+
+RAIN_DATA_URL = "https://hilltop.gw.govt.nz/Data.hts?Service=Hilltop&Request=GetData&Collection=Rainfall&TimeInterval=P24H&Method=Total&Interval=1hours&Alignment=00:00"    
+RAIN_HOUR_OUTPUT_FILE_PATH = "data/outputs/RainHour_output_from_url.htm"
