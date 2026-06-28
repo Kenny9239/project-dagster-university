@@ -8,10 +8,6 @@ import csv
 import datetime
 from pydantic import field_validator
 
-# src/dagster_and_etl/defs/assets.py
-import datetime
-from pydantic import field_validator
-
 class NasaDate(dg.Config):
     date: str
 
