@@ -1,10 +1,248 @@
 # src/dagster_and_etl/defs/assets.py
 import dagster as dg
 from pathlib import Path
-
 from dagster_duckdb import DuckDBResource
-
 import csv
+
+# src/dagster_and_etl/defs/assets.py
+import datetime
+from pydantic import field_validator
+
+# src/dagster_and_etl/defs/assets.py
+import datetime
+from pydantic import field_validator
+
+class NasaDate(dg.Config):
+    date: str
+
+    @field_validator("date")
+    @classmethod
+    def validate_date_format(cls, v):
+        try:
+            datetime.datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("event_date must be in 'YYYY-MM-DD' format")
+        return v
+
+# src/dagster_and_etl/defs/assets.py
+from dagster_and_etl.defs.resources import NASAResource
+
+@dg.asset(
+    kinds={"nasa"},
+)
+def asteroids(
+    context: dg.AssetExecutionContext,
+    config: NasaDate,
+    nasa: NASAResource,
+) -> list[dict]:
+    anchor_date = datetime.datetime.strptime(config.date, "%Y-%m-%d")
+    start_date = (anchor_date - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+    return nasa.get_near_earth_asteroids(
+        start_date=start_date,
+        end_date=config.date,
+    )
+
+# src/dagster_and_etl/defs/assets.py
+@dg.asset
+def asteroids_file(
+    context: dg.AssetExecutionContext,
+    asteroids,
+) -> Path:
+    filename = "asteroid_staging"
+    file_path = (
+        Path(__file__).absolute().parent / f"../../../data/staging/{filename}.csv"
+    )
+
+    # Only load specific fields
+    fields = [
+        "id",
+        "name",
+        "absolute_magnitude_h",
+        "is_potentially_hazardous_asteroid",
+    ]
+
+    with open(file_path, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=fields)
+
+        writer.writeheader()
+        writer.writerows(
+            {key: row[key] for key in fields if key in row} for row in asteroids
+        )
+
+    return file_path
+
+# src/dagster_and_etl/defs/assets.py
+@dg.asset(
+    kinds={"duckdb"},
+)
+def duckdb_table_asteroids(
+    context: dg.AssetExecutionContext,
+    database: DuckDBResource,
+    asteroids_file,
+) -> None:
+    table_name = "raw_asteroid_data"
+    with database.get_connection() as conn:
+        table_query = f"""
+            create table if not exists {table_name} (
+                id varchar(10),
+                name varchar(100),
+                absolute_magnitude_h float,
+                is_potentially_hazardous_asteroid boolean
+            ) 
+        """
+        conn.execute(table_query)
+        conn.execute(f"copy {table_name} from '{asteroids_file}'")
+
+
+nasa_partitions_def = dg.DailyPartitionsDefinition(
+    start_date="2025-04-01",
+)
+# src/dagster_and_etl/defs/assets.py
+@dg.asset(
+    kinds={"nasa"},
+    partitions_def=nasa_partitions_def,
+)
+def asteroids_partition(
+    context: dg.AssetExecutionContext,
+    nasa: NASAResource,
+) -> list[dict]:
+    anchor_date = datetime.datetime.strptime(context.partition_key, "%Y-%m-%d")
+    start_date = (anchor_date - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+    return nasa.get_near_earth_asteroids(
+        start_date=start_date,
+        end_date=context.partition_key,
+    )
+
+
+
+class IngestionFileS3Config(dg.Config):
+    bucket: str
+    path: str
+
+@dg.asset(
+    kinds={"s3"},
+)
+def import_file_s3(
+    context: dg.AssetExecutionContext,
+    config: IngestionFileS3Config,
+) -> str:
+    s3_path = f"s3://{config.bucket}/{config.path}"
+    return s3_path
+
+
+@dg.asset(
+    kinds={"duckdb"},
+)
+def duckdb_table_s3(
+    context: dg.AssetExecutionContext,
+    database: DuckDBResource,
+    import_file_s3: str,
+):
+    table_name = "raw_s3_data"
+    with database.get_connection() as conn:
+        table_query = f"""
+            create table if not exists {table_name} (
+                date date,
+                share_price float,
+                amount float,
+                spend float,
+                shift float,
+                spread float
+            ) 
+        """
+        conn.execute(table_query)
+        conn.execute(f"copy {table_name} from '{import_file_s3}' (format csv, header);")
+
+
+
+dynamic_partitions_def = dg.DynamicPartitionsDefinition(name="dynamic_partition")
+
+# src/dagster_and_etl/defs/assets.py
+@dg.asset(
+    partitions_def=dynamic_partitions_def,
+)
+def import_dynamic_partition_file(context: dg.AssetExecutionContext) -> str:
+    file_path = (
+        Path(__file__).absolute().parent
+        / f"../../../data/source/{context.partition_key}.csv"
+    )
+    return str(file_path.resolve())
+
+# src/dagster_and_etl/defs/assets.py
+@dg.asset(
+    kinds={"duckdb"},
+    partitions_def=dynamic_partitions_def,
+)
+def duckdb_dynamic_partition_table(
+    context: dg.AssetExecutionContext,
+    database: DuckDBResource,
+    import_dynamic_partition_file,
+):
+    table_name = "raw_dynamic_partition_data"
+    with database.get_connection() as conn:
+        table_query = f"""
+            create table if not exists {table_name} (
+                date date,
+                share_price float,
+                amount float,
+                spend float,
+                shift float,
+                spread float
+            ) 
+        """
+        conn.execute(table_query)
+        conn.execute(
+            f"delete from {table_name} where date = '{context.partition_key}';"
+        )
+        conn.execute(f"copy {table_name} from '{import_dynamic_partition_file}';")
+
+
+
+partitions_def = dg.DailyPartitionsDefinition(
+    start_date="2018-01-21",
+    end_date="2018-01-24",
+)
+
+# src/dagster_and_etl/defs/assets.py
+@dg.asset(
+    partitions_def=partitions_def,
+)
+def import_partition_file(context: dg.AssetExecutionContext) -> str:
+    file_path = (
+        Path(__file__).absolute().parent
+        / f"../../../data/source/{context.partition_key}.csv"
+    )
+    return str(file_path.resolve())
+# src/dagster_and_etl/defs/assets.py
+@dg.asset(
+    kinds={"duckdb"},
+    partitions_def=partitions_def,
+)
+def duckdb_partition_table(
+    context: dg.AssetExecutionContext,
+    database: DuckDBResource,
+    import_partition_file,
+):
+    table_name = "raw_partition_data"
+    with database.get_connection() as conn:
+        table_query = f"""
+            create table if not exists {table_name} (
+                date date,
+                share_price float,
+                amount float,
+                spend float,
+                shift float,
+                spread float
+            ) 
+        """
+        conn.execute(table_query)
+        conn.execute(
+            f"delete from {table_name} where date = '{context.partition_key}';"
+        )
+        conn.execute(f"copy {table_name} from '{import_partition_file}';")
+
 class IngestionFileConfig(dg.Config):
     path: str
 
