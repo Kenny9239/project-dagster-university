@@ -3,8 +3,6 @@ import dagster as dg
 from pathlib import Path
 from dagster_duckdb import DuckDBResource
 import csv
-
-# src/dagster_and_etl/defs/assets.py
 import datetime
 from pydantic import field_validator
 
