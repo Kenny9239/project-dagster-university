@@ -7,10 +7,7 @@ import datetime
 from pydantic import field_validator
 
 # for Assura asset
-from dagster_and_etl.defs.resources import (
-    NASAResource,
-    AssuraAPIResource,
-)
+from dagster_and_etl.defs.resources import AssuraAPIResource
 
 class NasaDate(dg.Config):
     date: str
