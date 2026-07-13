@@ -11,7 +11,7 @@ from dagster_and_etl.defs.resources import AssuraAPIResource
 
 ############################## Assura asset starts ###############################
 @dg.asset(
-    kinds={"assura", "api"},
+    kinds={"assura"},
 )
 def workflow_list_asset(
     context: dg.AssetExecutionContext,

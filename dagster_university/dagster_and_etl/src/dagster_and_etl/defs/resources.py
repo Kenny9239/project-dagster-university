@@ -41,6 +41,7 @@ class AssuraAPIResource(dg.ConfigurableResource):
             },
         )
 
+        # Check if the request was successful
         response.raise_for_status()
 
         login_response = response.json()
@@ -71,8 +72,7 @@ class AssuraAPIResource(dg.ConfigurableResource):
 
         return response.json()
     
-# src/dagster_and_etl/defs/resources.py
-
+# Register resources for Dagster
 @dg.definitions
 def resources():
     return dg.Definitions(
