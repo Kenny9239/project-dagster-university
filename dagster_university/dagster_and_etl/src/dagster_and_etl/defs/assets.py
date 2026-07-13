@@ -6,6 +6,12 @@ import csv
 import datetime
 from pydantic import field_validator
 
+# for Assura asset
+from dagster_and_etl.defs.resources import (
+    NASAResource,
+    AssuraAPIResource,
+)
+
 class NasaDate(dg.Config):
     date: str
 
@@ -293,4 +299,30 @@ def not_empty(
 
     return dg.AssetCheckResult(
         passed=True,
+    )
+
+#assura asset
+@dg.asset(
+    kinds={"assura", "api"},
+)
+def workflow_list_asset(
+    context: dg.AssetExecutionContext,
+    assura: AssuraAPIResource,
+):
+    workflows = assura.get_workflow_list()
+
+    output_folder = Path("data/output")
+    output_folder.mkdir(parents=True, exist_ok=True)
+
+    output_file = output_folder / "workflow_list.txt"
+
+    with open(output_file, "w", encoding="utf-8") as file:
+        file.write(str(workflows))
+
+    context.log.info(f"Saved Assura workflow response to {output_file}")
+
+    return dg.MaterializeResult(
+        metadata={
+            "Output": str(output_file),
+        }
     )
